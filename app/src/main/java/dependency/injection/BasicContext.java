@@ -4,35 +4,42 @@ import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 
 public class BasicContext implements Context {
 
-    HashMap<String, BeanDefinition> beanDefinitions = new HashMap<>();
-    HashMap<String, Object> singletons = new HashMap<>();
+    private final Map<String, BeanDefinition> beanDefinitions = new HashMap<>();
+    private final Map<String, Object> singletons = new HashMap<>();
 
     @Override
     public <T> T getBean(String name, Class<T> clazz) {
-        BeanDefinition beanDefinition = beanDefinitions.get(name);
-        if(beanDefinition.getBeanClass().isAssignableFrom(clazz)) {
-            return resolveBean(beanDefinition);
-        }
-        throw new RuntimeException("타입이 일치하지 않습니다.");
+        BeanDefinition beanDefinition = getBeanDefinitionByName(name);
+        validateBeanType(beanDefinition, clazz);
+        return resolveBean(beanDefinition);
     }
 
     @Override
     public <T> T getBean(String name) {
-        return resolveBean(beanDefinitions.get(name));
+        BeanDefinition beanDefinition = getBeanDefinitionByName(name);
+        return resolveBean(beanDefinition);
     }
 
     @Override
     public <T> T getBean(Class<T> clazz) {
-        for(BeanDefinition beanDefinition : beanDefinitions.values()) {
-            if(clazz.isAssignableFrom(beanDefinition.getBeanClass())) {
-                return resolveBean(beanDefinition);
+        BeanDefinition beanDefinition = findBeanDefinitionByType(clazz);
+        return resolveBean(beanDefinition);
+    }
+
+    @Override
+    public <T> List<T> getBeans(Class<T> clazz) {
+        List<T> beans = new ArrayList<>();
+        for (BeanDefinition beanDefinition : beanDefinitions.values()) {
+            if (clazz.isAssignableFrom(beanDefinition.getBeanClass())) {
+                beans.add(resolveBean(beanDefinition));
             }
         }
-        throw new RuntimeException("타입이 일치하지 않습니다.");
+        return beans;
     }
 
     @Override
@@ -42,92 +49,116 @@ public class BasicContext implements Context {
 
     @Override
     public <T> void addBean(String name, Class<T> clazz) {
-
         BeanDefinition beanDefinition = new BasicBeanDefinition(clazz);
-
-        if (beanDefinitions.containsKey(beanDefinition.getBeanName())) {
-            throw new RuntimeException("동일한 빈이 이미 존재합니다.");
-        }
-
+        validateBeanNameUniqueness(beanDefinition.getBeanName());
         beanDefinitions.put(beanDefinition.getBeanName(), beanDefinition);
-
     }
 
     private <T> T resolveBean(BeanDefinition beanDefinition) {
-        if(singletons.containsKey(beanDefinition.getBeanName())) {
+        if (beanDefinition == null) {
+            throw new RuntimeException("빈 정의를 찾을 수 없습니다.");
+        }
+
+        // 싱글톤 캐시 확인
+        if (singletons.containsKey(beanDefinition.getBeanName())) {
             return (T) singletons.get(beanDefinition.getBeanName());
         }
 
-        Class<?>[] dependencies = beanDefinition.getDependencyClass();
+        // 의존성 해결
+        Object[] dependencies = resolveDependencies(beanDefinition);
 
-        Object[] dependencyObjects = new Object[dependencies.length];
-        for(int i = 0; i < dependencies.length; i++) {
-            Class<?> dependency = dependencies[i];
-            BeanDefinition dependencyBeanDef = getBeanDefinition(dependency);
-            if(dependencyBeanDef == null) {
-                throw new RuntimeException("의존성을 찾을 수 없습니다: " + dependency.getName());
+        // 인스턴스 생성
+        T instance = createInstance(beanDefinition, dependencies);
+        
+        // 싱글톤으로 저장
+        singletons.put(beanDefinition.getBeanName(), instance);
+        
+        return instance;
+    }
+
+    private Object[] resolveDependencies(BeanDefinition beanDefinition) {
+        Class<?>[] dependencyClasses = beanDefinition.getDependencyClass();
+        Object[] dependencies = new Object[dependencyClasses.length];
+        
+        for (int i = 0; i < dependencyClasses.length; i++) {
+            Class<?> dependencyClass = dependencyClasses[i];
+            BeanDefinition dependencyBeanDef = findBeanDefinitionByType(dependencyClass);
+            
+            if (dependencyBeanDef == null) {
+                throw new RuntimeException("의존성을 찾을 수 없습니다: " + dependencyClass.getName());
             }
-            dependencyObjects[i] = resolveBean(dependencyBeanDef);
+            
+            dependencies[i] = resolveBean(dependencyBeanDef);
         }
+        
+        return dependencies;
+    }
 
+    private <T> T createInstance(BeanDefinition beanDefinition, Object[] dependencies) {
         try {
-            Constructor<?> constructor = getAllArgsConstructor(beanDefinition.getBeanClass());
-            Object instance = constructor.newInstance(dependencyObjects);
-            singletons.put(beanDefinition.getBeanName(), instance);
-            return (T) instance;
-        } catch(Exception e) {
-            throw new RuntimeException("빈 생성에 실패했습니다.", e);
+            Constructor<?> constructor = findSuitableConstructor(beanDefinition.getBeanClass());
+            if (constructor == null) {
+                throw new RuntimeException("적절한 생성자를 찾을 수 없습니다: " + beanDefinition.getBeanClass().getName());
+            }
+            
+            return (T) constructor.newInstance(dependencies);
+        } catch (Exception e) {
+            throw new RuntimeException("빈 생성에 실패했습니다: " + beanDefinition.getBeanClass().getName(), e);
         }
     }
 
-    private static Constructor<?> getAllArgsConstructor(Class<?> beanClass) {
+    private Constructor<?> findSuitableConstructor(Class<?> beanClass) {
         Constructor<?>[] constructors = beanClass.getDeclaredConstructors();
-        if(constructors.length == 1) {
+        
+        if (constructors.length == 1) {
             return constructors[0];
         }
 
-        if(constructors.length > 2) {
-            throw new RuntimeException("생성자가 너무 많습니다.");
+        if (constructors.length > 2) {
+            throw new RuntimeException("생성자가 너무 많습니다: " + beanClass.getName());
         }
 
-        int parameteredConstructorCount = 0;
-        for(Constructor<?> constructor : constructors) {
-            if(constructor.getParameterCount() > 0) {
-                parameteredConstructorCount++;
+        // 파라미터가 있는 생성자 찾기
+        Constructor<?> parameterizedConstructor = null;
+        for (Constructor<?> constructor : constructors) {
+            if (constructor.getParameterCount() > 0) {
+                if (parameterizedConstructor != null) {
+                    throw new RuntimeException("파라미터가 있는 생성자는 1개로 제한되어야 합니다: " + beanClass.getName());
+                }
+                parameterizedConstructor = constructor;
             }
         }
-        if(parameteredConstructorCount > 1) {
-            throw new RuntimeException("파라미터가 있는 생성자는 1개로 제한되어야 합니다.");
-        }
-
-        for(Constructor<?> constructor : constructors) {
-            if(constructor.getParameterCount() > 0) {
-                return constructor;
-            }
-        }
-
-        return null;
+        
+        return parameterizedConstructor;
     }
 
-    private BeanDefinition getBeanDefinition(Class<?> dependency) {
-        for(Entry<String, BeanDefinition> entry : beanDefinitions.entrySet()) {
-            BeanDefinition beanDef = entry.getValue();
-            if(dependency.isAssignableFrom(beanDef.getBeanClass())) {
-                return beanDef;
-            }
+    private BeanDefinition getBeanDefinitionByName(String name) {
+        BeanDefinition beanDefinition = beanDefinitions.get(name);
+        if (beanDefinition == null) {
+            throw new RuntimeException("빈을 찾을 수 없습니다: " + name);
         }
-        return null;
+        return beanDefinition;
     }
 
-    @Override
-    public <T> List<T> getBeans(Class<T> clazz) {
-        List<T> beans = new ArrayList<>();
-        for(BeanDefinition beanDefinition : beanDefinitions.values()) {
-            if(clazz.isAssignableFrom(beanDefinition.getBeanClass())) {
-                beans.add(resolveBean(beanDefinition));
+    private BeanDefinition findBeanDefinitionByType(Class<?> clazz) {
+        for (BeanDefinition beanDefinition : beanDefinitions.values()) {
+            if (clazz.isAssignableFrom(beanDefinition.getBeanClass())) {
+                return beanDefinition;
             }
         }
-        return beans;
+        throw new RuntimeException("타입에 해당하는 빈을 찾을 수 없습니다: " + clazz.getName());
     }
 
+    private void validateBeanType(BeanDefinition beanDefinition, Class<?> expectedType) {
+        if (!expectedType.isAssignableFrom(beanDefinition.getBeanClass())) {
+            throw new RuntimeException("빈의 타입이 일치하지 않습니다. 예상: " + expectedType.getName() + 
+                                     ", 실제: " + beanDefinition.getBeanClass().getName());
+        }
+    }
+
+    private void validateBeanNameUniqueness(String beanName) {
+        if (beanDefinitions.containsKey(beanName)) {
+            throw new RuntimeException("동일한 빈이 이미 존재합니다: " + beanName);
+        }
+    }
 }
