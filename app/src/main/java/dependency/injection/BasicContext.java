@@ -5,7 +5,7 @@ import java.util.HashMap;
 
 public class BasicContext implements Context {
 
-    HashMap<String, BeanDefinition> beanDefinitions;
+    HashMap<String, BeanDefinition> beanDefinitions = new HashMap<>();
 
     @Override
     public <T> T getBean(String name, Class<T> clazz) {
