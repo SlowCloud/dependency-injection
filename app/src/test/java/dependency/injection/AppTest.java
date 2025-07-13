@@ -8,13 +8,35 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import org.junit.jupiter.api.Test;
 
 class AppTest {
-    @Test void contextTest() {
+    @Test void ATest() {
         Context context = new BasicContext();
-        context.addBean(User.class);
-        User user = context.getBean(User.class);
+        context.addBean(A.class);
+        A user = context.getBean(A.class);
         assertNotNull(user);
+    }
+
+    @Test void BTest() {
+        Context context = new BasicContext();
+        context.addBean(A.class);
+        context.addBean(B.class);
+        B b = context.getBean(B.class);
+        assertNotNull(b);
+        A a = b.getA();
+        assertNotNull(a);
     }
 }
 
-class User {
+class A {
+}
+
+class B {
+    public B(A a) {
+        this.a = a;
+    }
+
+    public A getA() {
+        return this.a;
+    }
+
+    private A a;
 }
