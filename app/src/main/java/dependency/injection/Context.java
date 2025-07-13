@@ -1,10 +1,10 @@
 package dependency.injection;
 
 public interface Context {
-    <E> E getBean(String name, Class<E> clazz);
-    <E> E getBean(String name);
-    <E> E getBean(Class<E> clazz);
+    <T> T getBean(String name, Class<T> clazz);
+    <T> T getBean(String name);
+    <T> T getBean(Class<T> clazz);
 
-    <E> void addBean(Class<E> clazz);
-    <E> void addBean(String name, Class<E> clazz);
+    <T> void addBean(Class<T> clazz);
+    <T> void addBean(String name, Class<T> clazz);
 }
