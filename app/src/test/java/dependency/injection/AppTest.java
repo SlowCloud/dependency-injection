@@ -3,7 +3,10 @@
  */
 package dependency.injection;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
@@ -24,12 +27,29 @@ class AppTest {
         A a = b.getA();
         assertNotNull(a);
     }
+
+    @Test void greetingTest() {
+        Context context =new BasicContext();
+        context.addBean(A.class);
+        context.addBean(B.class);
+        List<Greeting> greetings = context.getBeans(Greeting.class);
+        assertEquals(2, greetings.size());
+    }
 }
 
-class A {
+interface Greeting {
+    void greeting();
 }
 
-class B {
+class A implements Greeting {
+
+    @Override
+    public void greeting() {
+        System.out.println("greeting from A");
+    }
+}
+
+class B implements Greeting {
     public B(A a) {
         this.a = a;
     }
@@ -39,4 +59,9 @@ class B {
     }
 
     private A a;
+
+    @Override
+    public void greeting() {
+        System.out.println("greeting from B");
+    }
 }

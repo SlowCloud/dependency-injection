@@ -1,7 +1,9 @@
 package dependency.injection;
 
 import java.lang.reflect.Constructor;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map.Entry;
 
 public class BasicContext implements Context {
@@ -57,8 +59,8 @@ public class BasicContext implements Context {
         }
 
         Class<?>[] dependencies = beanDefinition.getDependencyClass();
+
         Object[] dependencyObjects = new Object[dependencies.length];
-        
         for(int i = 0; i < dependencies.length; i++) {
             Class<?> dependency = dependencies[i];
             BeanDefinition dependencyBeanDef = getBeanDefinition(dependency);
@@ -103,6 +105,7 @@ public class BasicContext implements Context {
                 return constructor;
             }
         }
+
         return null;
     }
 
@@ -114,6 +117,17 @@ public class BasicContext implements Context {
             }
         }
         return null;
+    }
+
+    @Override
+    public <T> List<T> getBeans(Class<T> clazz) {
+        List<T> beans = new ArrayList<>();
+        for(BeanDefinition beanDefinition : beanDefinitions.values()) {
+            if(clazz.isAssignableFrom(beanDefinition.getBeanClass())) {
+                beans.add(resolveBean(beanDefinition));
+            }
+        }
+        return beans;
     }
 
 }
