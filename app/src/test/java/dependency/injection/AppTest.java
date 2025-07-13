@@ -3,12 +3,18 @@
  */
 package dependency.injection;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
 
 class AppTest {
-    @Test void appHasAGreeting() {
-        App classUnderTest = new App();
-        assertNotNull(classUnderTest.getGreeting(), "app should have a greeting");
+    @Test void contextTest() {
+        Context context = new BasicContext();
+        context.addBean(User.class);
+        User user = context.getBean(User.class);
+        assertNotNull(user);
     }
+}
+
+class User {
 }
