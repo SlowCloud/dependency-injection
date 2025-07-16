@@ -97,10 +97,6 @@ public class BasicContext implements Context {
     private <T> T createInstance(BeanDefinition beanDefinition, Object[] dependencies) {
         try {
             Constructor<?> constructor = findSuitableConstructor(beanDefinition.getBeanClass());
-            if (constructor == null) {
-                throw new RuntimeException("적절한 생성자를 찾을 수 없습니다: " + beanDefinition.getBeanClass().getName());
-            }
-            
             return (T) constructor.newInstance(dependencies);
         } catch (Exception e) {
             throw new RuntimeException("빈 생성에 실패했습니다: " + beanDefinition.getBeanClass().getName(), e);
@@ -109,27 +105,10 @@ public class BasicContext implements Context {
 
     private Constructor<?> findSuitableConstructor(Class<?> beanClass) {
         Constructor<?>[] constructors = beanClass.getDeclaredConstructors();
-        
         if (constructors.length == 1) {
             return constructors[0];
         }
-
-        if (constructors.length > 2) {
-            throw new RuntimeException("생성자가 너무 많습니다: " + beanClass.getName());
-        }
-
-        // 파라미터가 있는 생성자 찾기
-        Constructor<?> parameterizedConstructor = null;
-        for (Constructor<?> constructor : constructors) {
-            if (constructor.getParameterCount() > 0) {
-                if (parameterizedConstructor != null) {
-                    throw new RuntimeException("파라미터가 있는 생성자는 1개로 제한되어야 합니다: " + beanClass.getName());
-                }
-                parameterizedConstructor = constructor;
-            }
-        }
-        
-        return parameterizedConstructor;
+        throw new RuntimeException("생성자는 1개만 존재하여야 합니다.");
     }
 
     private BeanDefinition getBeanDefinitionByName(String name) {
