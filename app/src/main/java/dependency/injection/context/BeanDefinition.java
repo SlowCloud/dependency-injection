@@ -1,4 +1,4 @@
-package dependency.injection;
+package dependency.injection.context;
 
 public interface BeanDefinition {
     String getBeanName();

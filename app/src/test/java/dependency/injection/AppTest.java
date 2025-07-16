@@ -10,6 +10,9 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import dependency.injection.context.BasicContext;
+import dependency.injection.context.Context;
+
 class AppTest {
     @Test void ATest() {
         Context context = new BasicContext();
