@@ -1,10 +1,7 @@
 package dependency.injection.aop;
 
-import java.lang.annotation.Documented;
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Target;
+import java.lang.reflect.Method;
 
-@Target(ElementType.TYPE)
-@Documented
-public @interface Interceptor {
+public interface Interceptor {
+    Object invoke(Method method);
 }
