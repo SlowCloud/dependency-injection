@@ -3,25 +3,29 @@ package dependency.injection.context;
 import java.lang.reflect.Constructor;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class BasicContext implements Context {
 
     private final Map<String, BeanDefinition> beanDefinitions = new HashMap<>();
     private final Map<String, Object> singletons = new HashMap<>();
+    private final ThreadLocal<Set<String>> beansInCreation = ThreadLocal.withInitial(HashSet::new);
 
     @Override
     public <T> T getBean(String name, Class<T> clazz) {
         BeanDefinition beanDefinition = getBeanDefinitionByName(name);
         validateBeanType(beanDefinition, clazz);
-        return resolveBean(beanDefinition);
+        return getOrCreateSingleton(beanDefinition);
     }
 
     @Override
     public <T> T getBean(Class<T> clazz) {
-        BeanDefinition beanDefinition = findBeanDefinitionByType(clazz);
-        return resolveBean(beanDefinition);
+        BeanDefinition beanDefinition = findUniqueBeanDefinitionByType(clazz);
+        return getOrCreateSingleton(beanDefinition);
     }
 
     @Override
@@ -38,69 +42,59 @@ public class BasicContext implements Context {
 
     @Override
     public <T> Map<String, T> getBeansOfType(Class<T> type) {
-        return beanDefinitions.values().stream()
-            .filter(bd -> type.isAssignableFrom(bd.getBeanClass()))
-            .map(this::<T>resolveBean)
+        return findBeanDefinitionsByType(type).stream()
+            .map(this::<T>getOrCreateSingleton)
             .collect(Collectors.toMap(
-                bean -> bean.getClass().getName(), // Or some other naming strategy
+                bean -> bean.getClass().getName(), // Consider a more robust naming strategy
                 bean -> bean
             ));
     }
 
     @Override
     public void close() {
-        // For example, call destroy methods on disposable beans
         singletons.clear();
         beanDefinitions.clear();
+        beansInCreation.remove();
         System.out.println("Context closed. All beans destroyed.");
     }
 
-    private <T> T resolveBean(BeanDefinition beanDefinition) {
-        if (beanDefinition == null) {
-            throw new RuntimeException("빈 정의를 찾을 수 없습니다.");
-        }
-
-        // 싱글톤 캐시 확인
+    @SuppressWarnings("unchecked")
+    private <T> T getOrCreateSingleton(BeanDefinition beanDefinition) {
         Object singleton = singletons.get(beanDefinition.getBeanName());
         if (singleton != null) {
             return (T) singleton;
         }
+        return createBeanInstance(beanDefinition);
+    }
 
-        // 의존성 해결
-        Object[] dependencies = resolveDependencies(beanDefinition);
+    private <T> T createBeanInstance(BeanDefinition beanDefinition) {
+        String beanName = beanDefinition.getBeanName();
+        if (beansInCreation.get().contains(beanName)) {
+            throw new RuntimeException("순환 참조가 감지되었습니다: " + beanName);
+        }
 
-        // 인스턴스 생성
-        T instance = createInstance(beanDefinition, dependencies);
-
-        // 싱글톤으로 저장
-        singletons.put(beanDefinition.getBeanName(), instance);
-
-        return instance;
+        beansInCreation.get().add(beanName);
+        try {
+            Object[] dependencies = resolveDependencies(beanDefinition);
+            T instance = instantiate(beanDefinition, dependencies);
+            singletons.put(beanName, instance);
+            return instance;
+        } finally {
+            beansInCreation.get().remove(beanName);
+        }
     }
 
     private Object[] resolveDependencies(BeanDefinition beanDefinition) {
-        Class<?>[] dependencyClasses = beanDefinition.getDependencies();
-        Object[] dependencies = new Object[dependencyClasses.length];
-
-        for (int i = 0; i < dependencyClasses.length; i++) {
-            Class<?> dependencyClass = dependencyClasses[i];
-            BeanDefinition dependencyBeanDef = findBeanDefinitionByType(dependencyClass);
-
-            if (dependencyBeanDef == null) {
-                throw new RuntimeException("의존성을 찾을 수 없습니다: " + dependencyClass.getName());
-            }
-
-            dependencies[i] = resolveBean(dependencyBeanDef);
-        }
-
-        return dependencies;
+        return Arrays.stream(beanDefinition.getDependencies())
+            .map(this::getBean)
+            .toArray();
     }
 
-    private <T> T createInstance(BeanDefinition beanDefinition, Object[] dependencies) {
+    @SuppressWarnings("unchecked")
+    private <T> T instantiate(BeanDefinition beanDefinition, Object[] dependencies) {
         try {
-            // Use the constructor that matches the dependencies
             Constructor<?> constructor = findSuitableConstructor(beanDefinition.getBeanClass(), dependencies);
-            constructor.setAccessible(true); // Allow access to non-public constructors
+            constructor.setAccessible(true);
             return (T) constructor.newInstance(dependencies);
         } catch (Exception e) {
             throw new RuntimeException("빈 생성에 실패했습니다: " + beanDefinition.getBeanClass().getName(), e);
@@ -108,29 +102,24 @@ public class BasicContext implements Context {
     }
 
     private Constructor<?> findSuitableConstructor(Class<?> beanClass, Object[] dependencies) {
-        Class<?>[] dependencyTypes = Arrays.stream(dependencies)
-            .map(Object::getClass)
-            .toArray(Class<?>[]::new);
-
         return Arrays.stream(beanClass.getDeclaredConstructors())
-            .filter(constructor -> {
-                if (constructor.getParameterCount() != dependencies.length) {
-                    return false;
-                }
-                Class<?>[] parameterTypes = constructor.getParameterTypes();
-                for (int i = 0; i < parameterTypes.length; i++) {
-                    // Check for assignable types (e.g., interface implementation)
-                    if (!parameterTypes[i].isAssignableFrom(dependencyTypes[i])) {
-                        return false;
-                    }
-                }
-                return true;
-            })
+            .filter(c -> isConstructorMatching(c, dependencies))
             .findFirst()
-            .orElseThrow(() -> new RuntimeException("적합한 생성자를 찾을 수 없습니다: " + beanClass.getName() +
-                " with dependencies " + Arrays.toString(dependencyTypes)));
+            .orElseThrow(() -> new RuntimeException("적합한 생성자를 찾을 수 없습니다: " + beanClass.getName()));
     }
 
+    private boolean isConstructorMatching(Constructor<?> constructor, Object[] dependencies) {
+        if (constructor.getParameterCount() != dependencies.length) {
+            return false;
+        }
+        Class<?>[] parameterTypes = constructor.getParameterTypes();
+        for (int i = 0; i < parameterTypes.length; i++) {
+            if (!parameterTypes[i].isAssignableFrom(dependencies[i].getClass())) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     private BeanDefinition getBeanDefinitionByName(String name) {
         BeanDefinition beanDefinition = beanDefinitions.get(name);
@@ -140,11 +129,22 @@ public class BasicContext implements Context {
         return beanDefinition;
     }
 
-    private BeanDefinition findBeanDefinitionByType(Class<?> clazz) {
-        return beanDefinitions.values().stream()
+    private BeanDefinition findUniqueBeanDefinitionByType(Class<?> clazz) {
+        List<BeanDefinition> matchingDefs = findBeanDefinitionsByType(clazz);
+        if (matchingDefs.size() > 1) {
+            throw new RuntimeException("해당 타입의 빈이 1개 이상 존재합니다: " + clazz.getName());
+        }
+        return matchingDefs.get(0);
+    }
+
+    private List<BeanDefinition> findBeanDefinitionsByType(Class<?> clazz) {
+        List<BeanDefinition> matchingDefs = beanDefinitions.values().stream()
             .filter(bd -> clazz.isAssignableFrom(bd.getBeanClass()))
-            .findFirst()
-            .orElseThrow(() -> new RuntimeException("타입에 해당하는 빈을 찾을 수 없습니다: " + clazz.getName()));
+            .collect(Collectors.toList());
+        if (matchingDefs.isEmpty()) {
+            throw new RuntimeException("타입에 해당하는 빈을 찾을 수 없습니다: " + clazz.getName());
+        }
+        return matchingDefs;
     }
 
     private void validateBeanType(BeanDefinition beanDefinition, Class<?> expectedType) {
