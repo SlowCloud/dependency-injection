@@ -1,13 +1,16 @@
 package dependency.injection.context;
 
-import java.util.List;
+import java.util.Map;
 
-public interface Context {
+public interface Context extends AutoCloseable {
     <T> T getBean(String name, Class<T> clazz);
-    <T> T getBean(String name);
     <T> T getBean(Class<T> clazz);
 
-    <T> void addBean(Class<T> clazz);
-    <T> void addBean(String name, Class<T> clazz);
-    <T> List<T> getBeans(Class<T> clazz);
+    <T> void register(Class<T> clazz);
+    <T> void register(String name, Class<T> clazz);
+
+    <T> Map<String, T> getBeansOfType(Class<T> type);
+
+    @Override
+    void close();
 }

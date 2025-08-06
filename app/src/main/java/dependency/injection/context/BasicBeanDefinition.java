@@ -30,7 +30,7 @@ public class BasicBeanDefinition implements BeanDefinition {
     }
 
     @Override
-    public Class<?>[] getDependencyClass() {
+    public Class<?>[] getDependencies() {
         Constructor<?>[] constructors = clazz.getConstructors();
         int cnt = 0;
         for(var constructor : constructors) {

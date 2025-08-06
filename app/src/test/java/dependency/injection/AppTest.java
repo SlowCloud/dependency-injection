@@ -6,7 +6,7 @@ package dependency.injection;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -15,28 +15,31 @@ import dependency.injection.context.Context;
 
 class AppTest {
     @Test void ATest() {
-        Context context = new BasicContext();
-        context.addBean(A.class);
-        A user = context.getBean(A.class);
-        assertNotNull(user);
+        try (Context context = new BasicContext()) {
+            context.register(A.class);
+            A user = context.getBean(A.class);
+            assertNotNull(user);
+        }
     }
 
     @Test void BTest() {
-        Context context = new BasicContext();
-        context.addBean(A.class);
-        context.addBean(B.class);
-        B b = context.getBean(B.class);
-        assertNotNull(b);
-        A a = b.getA();
-        assertNotNull(a);
+        try (Context context = new BasicContext()) {
+            context.register(A.class);
+            context.register(B.class);
+            B b = context.getBean(B.class);
+            assertNotNull(b);
+            A a = b.getA();
+            assertNotNull(a);
+        }
     }
 
     @Test void greetingTest() {
-        Context context =new BasicContext();
-        context.addBean(A.class);
-        context.addBean(B.class);
-        List<Greeting> greetings = context.getBeans(Greeting.class);
-        assertEquals(2, greetings.size());
+        try (Context context = new BasicContext()) {
+            context.register(A.class);
+            context.register(B.class);
+            Map<String, Greeting> greetings = context.getBeansOfType(Greeting.class);
+            assertEquals(2, greetings.size());
+        }
     }
 }
 
