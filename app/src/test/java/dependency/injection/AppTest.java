@@ -5,41 +5,86 @@ package dependency.injection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Map;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import dependency.injection.context.BasicContext;
 import dependency.injection.context.Context;
 
 class AppTest {
-    @Test void ATest() {
-        try (Context context = new BasicContext()) {
-            context.register(A.class);
-            A user = context.getBean(A.class);
-            assertNotNull(user);
-        }
+
+    private Context context;
+
+    @BeforeEach
+    void setUp() {
+        context = new BasicContext();
     }
 
-    @Test void BTest() {
-        try (Context context = new BasicContext()) {
-            context.register(A.class);
-            context.register(B.class);
-            B b = context.getBean(B.class);
-            assertNotNull(b);
-            A a = b.getA();
-            assertNotNull(a);
-        }
+    @Test
+    void ATest() {
+        context.register(A.class);
+        A user = context.getBean(A.class);
+        assertNotNull(user);
     }
 
-    @Test void greetingTest() {
-        try (Context context = new BasicContext()) {
-            context.register(A.class);
-            context.register(B.class);
-            Map<String, Greeting> greetings = context.getBeansOfType(Greeting.class);
-            assertEquals(2, greetings.size());
-        }
+    @Test
+    void BTest() {
+        context.register(A.class);
+        context.register(B.class);
+        B b = context.getBean(B.class);
+        assertNotNull(b);
+        A a = b.getA();
+        assertNotNull(a);
+    }
+
+    @Test
+    void greetingTest() {
+        context.register(A.class);
+        context.register(B.class);
+        Map<String, Greeting> greetings = context.getBeansOfType(Greeting.class);
+        assertEquals(2, greetings.size());
+    }
+
+    @Test
+    void circularDependencyTest() {
+        context.register(CircularA.class);
+        context.register(CircularB.class);
+        Exception exception = assertThrows(RuntimeException.class, () -> {
+            context.getBean(CircularA.class);
+        });
+        assertEquals("순환 참조가 감지되었습니다: " + CircularA.class.getName(), exception.getMessage());
+    }
+
+    @Test
+    void missingDependencyTest() {
+        context.register(MissingDepB.class); // MissingDepA is not registered
+        Exception exception = assertThrows(RuntimeException.class, () -> {
+            context.getBean(MissingDepB.class);
+        });
+        assertEquals("타입에 해당하는 빈을 찾을 수 없습니다: " + MissingDepA.class.getName(), exception.getMessage());
+    }
+
+    @Test
+    void ambiguousBeanTypeTest() {
+        context.register(AmbiguousServiceImpl1.class);
+        context.register(AmbiguousServiceImpl2.class);
+        Exception exception = assertThrows(RuntimeException.class, () -> {
+            context.getBean(AmbiguousService.class);
+        });
+        assertEquals("해당 타입의 빈이 1개 이상 존재합니다: " + AmbiguousService.class.getName(), exception.getMessage());
+    }
+
+    @Test
+    void duplicateBeanNameTest() {
+        context.register("myBean", A.class);
+        Exception exception = assertThrows(RuntimeException.class, () -> {
+            context.register("myBean", B.class); // Registering another class with the same name
+        });
+        assertEquals("동일한 빈이 이미 존재합니다: myBean", exception.getMessage());
     }
 }
 
@@ -48,7 +93,6 @@ interface Greeting {
 }
 
 class A implements Greeting {
-
     @Override
     public void greeting() {
         System.out.println("greeting from A");
@@ -56,18 +100,28 @@ class A implements Greeting {
 }
 
 class B implements Greeting {
-    public B(A a) {
-        this.a = a;
-    }
-
-    public A getA() {
-        return this.a;
-    }
-
-    private A a;
-
+    private final A a;
+    public B(A a) { this.a = a; }
+    public A getA() { return this.a; }
     @Override
-    public void greeting() {
-        System.out.println("greeting from B");
-    }
+    public void greeting() { System.out.println("greeting from B"); }
 }
+
+// For circular dependency test
+class CircularA {
+    public CircularA(CircularB b) {}
+}
+class CircularB {
+    public CircularB(CircularA a) {}
+}
+
+// For missing dependency test
+class MissingDepA {}
+class MissingDepB {
+    public MissingDepB(MissingDepA a) {}
+}
+
+// For ambiguous bean type test
+interface AmbiguousService {}
+class AmbiguousServiceImpl1 implements AmbiguousService {}
+class AmbiguousServiceImpl2 implements AmbiguousService {}
